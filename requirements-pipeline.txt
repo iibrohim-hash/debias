@@ -1,0 +1,2 @@
+# Only needed for the CrewAI integration (Week 11). Install on top of requirements.txt.
+crewai==1.15.41

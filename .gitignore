@@ -1,0 +1,30 @@
+# Model weights and run outputs: Drive or private HF Hub, never GitHub
+artifacts/
+checkpoints/
+outputs/
+wandb/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.faiss
+*.index
+
+# Secrets
+.env
+hf_token*
+*.token
+
+# Raw downloads (re-download from source)
+data/raw/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+tests/.artifacts/
