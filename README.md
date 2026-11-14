@@ -8,6 +8,30 @@ that wording without changing facts, checks the rewrite from both sides' perspec
 one answer plus a change note. Main case: Israel-Palestine (detector trained on FigNews 2024).
 Generalization case: Russia-Ukraine (no training).
 
+## Quick start for teammates
+
+1. Open `notebooks/00_template.ipynb` (Colab: File > Open notebook > GitHub > `iibrohim-hash/debias`),
+   then save a copy as `notebooks/<letter>_<topic>.ipynb`, e.g. `B_rewriter.ipynb`, `C_guidebook.ipynb`, `D_rag.ipynb`.
+2. Always run the first setup cell first. It installs the same library versions for everyone, loads the
+   shared code and sets the seed. If Colab asks to restart, restart and run it again.
+3. Add your Hugging Face token as a secret named `HF_TOKEN` (Colab: key icon on the left; Kaggle:
+   Add-ons > Secrets). Never paste the token into a notebook: the repo is public.
+
+Rules:
+
+- Take labels, seeds, model names, thresholds etc. from `src/config.py`; do not redefine them in your
+  notebook. If you need a change, tell the group.
+- Function signatures are fixed (see [Shared interface](#shared-interface)). Your file already exists
+  with a fake version:
+  - Madina: `src/rewriter.py`, `src/reviewers.py`, `prompts/`
+  - Yasa: `src/rag.py`
+  - Amen: `data/guidebook.md`, `data/test_sentences.csv`
+  - Iroda: `src/detector.py`, `src/placeholders.py`
+- Model weights and checkpoints go to Drive or Hugging Face Hub, not GitHub.
+- Work on your own branch (e.g. `madina/rewriter`) and open a pull request into `main`. Tests run automatically.
+- Open request: someone please review the side-name list in `src/placeholders.py` (what gets replaced
+  with `[SIDE_A]` / `[SIDE_B]`).
+
 ## Layout
 
 ```
