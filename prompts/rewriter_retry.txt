@@ -1,0 +1,4 @@
+Your answer was rejected for these reasons:
+$errors
+
+Answer again for the same TEXT, following all the rules. Output ONLY the JSON object.
