@@ -1,0 +1,17 @@
+TEXT:
+$text
+
+FLAGGED SPANS:
+$spans
+
+GUIDEBOOK RULES:
+$rules
+
+<<IF_FEEDBACK>>
+REVIEWER FEEDBACK on your previous version (fix these problems):
+$feedback
+
+<<END_IF_FEEDBACK>>
+Return ONLY this JSON object:
+{"revised": "...", "changes": [{"original": "...", "revised": "...", "reason": "R0X: ..."}]}
+Each "original" must be copied exactly from TEXT. Each change's "revised" must appear exactly in your revised text.
