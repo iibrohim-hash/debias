@@ -63,41 +63,92 @@ def _term_pattern(term: str) -> str:
     return escaped if term.isupper() else f"(?i:{escaped})"
 
 
-def _build(conflict: str) -> tuple[re.Pattern, dict[str, str]]:
-    lookup: dict[str, str] = {}
-    entries: list[tuple[str, str]] = []
-    for side, terms in TERMS[conflict].items():
-        for term in terms:
-            entries.append((term, side))
-            lookup[term.lower()] = side
+def _build(conflict: str) -> tuple[re.Pattern, list[tuple[re.Pattern, str]]]:
+    entries: list[tuple[str, str]] = [
+        (term, side) for side, terms in TERMS[conflict].items() for term in terms
+    ]
     entries.sort(key=lambda e: len(e[0]), reverse=True)  # longest match first
     alternation = "|".join(_term_pattern(t) for t, _ in entries)
-    pattern = re.compile(rf"(?<![\w\[])(?:{alternation})(?![\w\]])")
-    return pattern, lookup
+    # Boundaries: not inside a word, but "_" counts as a boundary so hashtags such
+    # as "#Gaza_War" are masked too ("#[SIDE_B]_War").
+    pattern = re.compile(rf"(?<![^\W_])(?:{alternation})(?![^\W_])")
+    # Per-term patterns to find the side of a match. Matching (not str.lower()) is
+    # needed because case-insensitive regex also matches Unicode variants such as
+    # the dotless "ı" in "ısrael", which str.lower() does not map back.
+    sides = [(re.compile(_term_pattern(t)), side) for t, side in entries]
+    return pattern, sides
 
 
 _COMPILED = {c: _build(c) for c in TERMS}
 
 
-def mask_sides(text: str, conflict: str = config.DEFAULT_CONFLICT) -> str:
-    """Replace every side name in `text` with [SIDE_A] or [SIDE_B]."""
-    config.check_conflict(conflict)
-    pattern, lookup = _COMPILED[conflict]
+def _build_hashtag(conflict: str) -> re.Pattern:
+    """Side names glued inside hashtags ("#IsraelHamasWar"), no word boundaries.
 
-    def repl(match: re.Match) -> str:
-        key = re.sub(r"\s+", " ", match.group(0)).lower()
-        return _PLACEHOLDER[lookup[key]]
-
-    return pattern.sub(repl, text)
-
-
-def find_leftovers(text: str) -> list[str]:
-    """Side names from ANY conflict still present in `text` (run after masking).
-
-    Checking all conflicts catches, for example, Russia/Ukraine names that leak
-    into Israel-Palestine data and vice versa.
+    Single-word terms only; acronyms shorter than 3 letters ("PA") are skipped
+    because they match inside unrelated hashtags.
     """
+    terms = [t for terms in TERMS[conflict].values() for t in terms
+             if " " not in t and not (t.isupper() and len(t) < 3)]
+    terms.sort(key=len, reverse=True)
+    return re.compile("|".join(_term_pattern(t) for t in terms))
+
+
+_HASHTAG_TERMS = {c: _build_hashtag(c) for c in TERMS}
+_HASHTAG = re.compile(r"#[^\W_][\w]*")
+
+
+def _side_of(word: str, sides: list[tuple[re.Pattern, str]]) -> str:
+    return next(s for p, s in sides if p.fullmatch(word))
+
+
+def mask_sides(text: str, conflict: str = config.DEFAULT_CONFLICT) -> str:
+    """Replace every side name in `text` with [SIDE_A] or [SIDE_B].
+
+    Also inside hashtags: "#IsraelHamasWar" -> "#[SIDE_A][SIDE_B]War",
+    "#HamasTerrorists" -> "#[SIDE_B]Terrorists" (the framing word stays).
+    """
+    config.check_conflict(conflict)
+    pattern, sides = _COMPILED[conflict]
+    inner = _HASHTAG_TERMS[conflict]
+
+    def repl_word(match: re.Match) -> str:
+        return _PLACEHOLDER[_side_of(match.group(0), sides)]
+
+    def repl_hashtag(match: re.Match) -> str:
+        return inner.sub(repl_word, match.group(0))
+
+    text = _HASHTAG.sub(repl_hashtag, text)
+    return pattern.sub(repl_word, text)
+
+
+def find_leftovers(text: str, conflict: str | None = None) -> list[str]:
+    """Side names still present in `text` (run after masking).
+
+    conflict=None checks every conflict, which also catches, for example,
+    Russia/Ukraine names inside Israel-Palestine data. Pass a conflict to check
+    only that conflict's names (these should be zero after masking).
+    """
+    conflicts = [config.check_conflict(conflict)] if conflict else list(_COMPILED)
     found: list[str] = []
-    for pattern, _ in _COMPILED.values():
-        found.extend(m.group(0) for m in pattern.finditer(text))
+    for c in conflicts:
+        found.extend(m.group(0) for m in _COMPILED[c][0].finditer(text))
     return found
+
+
+def find_glued(text: str, conflict: str = config.DEFAULT_CONFLICT) -> list[str]:
+    """Side names glued inside longer tokens, e.g. "#IsraelAtWar", "GazaUnderAttack".
+
+    Word-boundary masking cannot catch these; use this to measure how often they occur.
+    """
+    config.check_conflict(conflict)
+    found = []
+    for token in re.findall(r"\S+", text):
+        for side_terms in TERMS[conflict].values():
+            for term in side_terms:
+                if " " in term or term.isupper() or len(term) < 4:
+                    continue
+                if term.lower() in token.lower() and not re.fullmatch(rf"\W*{re.escape(term)}\W*", token, re.I):
+                    found.append(token)
+                    break
+    return sorted(set(found))
