@@ -60,6 +60,20 @@ FIGNEWS_DATASET = "CAMeL-Lab/FIGNEWS-2024"
 # Pin the dataset revision so everyone loads exactly the same rows.
 FIGNEWS_REVISION = "44e3d1f65c2e1dad3732c83b31ad4023bec18e2d"
 MIN_ANNOTATOR_AGREEMENT = 2  # keep posts where >= 2 of 3 annotators agree
+# Posts have 2 to 50 annotators (MAIN and IAA sheets). Generalised rule: the top
+# label needs >= MIN_ANNOTATOR_AGREEMENT votes AND a strict majority (> 50%).
+# For 3-annotator posts this is exactly "2 of 3 agree"; 2-annotator posts need both.
+FIGNEWS_SUBTASK = "Bias"
+# Exact label strings in FIGNEWS-2024.tsv (checked 16 Nov 2026 at FIGNEWS_REVISION).
+# Not mapped, so dropped: "Biased against others", "Biased against both Palestine
+# and Israel", "Unclear", "Not Applicable".
+FIGNEWS_LABEL_MAP = {
+    "Unbiased": "unbiased",
+    "Biased against Israel": "against_SIDE_A",
+    "Biased against Palestine": "against_SIDE_B",
+}
+# A post is identified by (source_language, id): ids repeat across languages.
+TEST_FRACTION_OF_ENGLISH = 0.4  # share of original English posts held out as test
 
 # ---------------------------------------------------------------------------
 # Training / evaluation

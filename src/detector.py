@@ -45,10 +45,24 @@ def _load():
     return tok, model, device
 
 
+@lru_cache(maxsize=1)
+def thresholds() -> dict:
+    """Tuned thresholds saved next to the model (thresholds.json from training);
+    config.THRESHOLDS only if the model folder has none."""
+    import json
+    from pathlib import Path
+
+    path = Path(config.DETECTOR_PATH or "") / "thresholds.json"
+    if config.DETECTOR_PATH and path.exists():
+        return json.loads(path.read_text())
+    return dict(config.THRESHOLDS)
+
+
 def _status(score: float) -> str:
-    if score >= config.THRESHOLDS["biased"]:
+    t = thresholds()
+    if score >= t["biased"]:
         return "biased"
-    if score >= config.THRESHOLDS["uncertain_low"]:
+    if score >= t["uncertain_low"]:
         return "uncertain"
     return "unbiased"
 
