@@ -50,3 +50,13 @@ def test_pipeline_end_to_end(conflict):
     out = run(TEXT, conflict)
     assert out["decision"] in ("unchanged", "approve", "retry", "block", "escalate")
     assert isinstance(out["change_note"], str)
+
+
+def test_pipeline_detailed_trace_and_force():
+    from src.pipeline import run_detailed
+
+    result, trace = run_detailed(TEXT, "israel_palestine", log=False, force=True)
+    assert trace["detect"]["status"] in config.DETECT_STATUSES
+    assert trace["rules"][0].startswith("## R01")
+    assert trace["rounds"] and "total" in trace["seconds"]
+    assert result["change_note"]

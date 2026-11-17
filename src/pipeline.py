@@ -11,6 +11,7 @@ as the reference.
 from __future__ import annotations
 
 import re
+import time
 
 from . import config, contract, utils
 from .detector import detect, explain
@@ -59,33 +60,52 @@ def _feedback(fact: dict, reviews: dict[str, dict]) -> str:
 
 
 def run(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool = True) -> dict:
-    config.check_conflict(conflict)
-    trace: dict = {"conflict": conflict, "input": text, "rounds": []}
+    """Final answer + change note for one chatbot answer."""
+    return run_detailed(text, conflict, log=log)[0]
 
-    det = contract.validate_detect(detect(text, conflict))
+
+def run_detailed(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool = True,
+                 force: bool = False) -> tuple[dict, dict]:
+    """Like run(), but also returns the full trace of every step with timings.
+
+    force=True sends the text through explain/RAG/rewrite even when the detector
+    says "unbiased" or "uncertain" (the real status is still recorded). For demos
+    and debugging only; never for evaluation runs.
+    """
+    config.check_conflict(conflict)
+    trace: dict = {"conflict": conflict, "input": text, "forced": force, "rounds": [], "seconds": {}}
+    t = trace["seconds"]
+
+    def timed(name, fn, *args):
+        start = time.perf_counter()
+        out = fn(*args)
+        t[name] = round(t.get(name, 0.0) + time.perf_counter() - start, 2)
+        return out
+
+    det = contract.validate_detect(timed("detect", detect, text, conflict))
     trace["detect"] = det
-    if det["status"] == "unbiased":
+    if det["status"] == "unbiased" and not force:
         result = {"decision": "unchanged", "final": text, "changes": []}
-    elif det["status"] == "uncertain":
+    elif det["status"] == "uncertain" and not force:
         result = {"decision": "escalate", "final": text, "changes": [], "reason": "detector uncertain"}
     else:
-        spans = contract.validate_explain(explain(text, conflict))
+        spans = contract.validate_explain(timed("explain", explain, text, conflict))
         query = " ".join(spans) if spans else text
-        rules = contract.validate_retrieve(retrieve(query, config.RAG_K), config.RAG_K)
-        trace.update(spans=spans, rules=[r.splitlines()[0] for r in rules])
+        rules = contract.validate_retrieve(timed("retrieve", retrieve, query, config.RAG_K), config.RAG_K)
+        trace.update(spans=spans, query=query, rules=[r.splitlines()[0] for r in rules])
 
         feedback = None
         result = None
         for round_no in range(1, config.MAX_ROUNDS + 1):
-            rw = contract.validate_rewrite(rewrite(text, spans, rules, feedback))
+            rw = contract.validate_rewrite(timed("rewrite", rewrite, text, spans, rules, feedback))
             fact = fact_check(text, rw["revised"])
             reviews = {
-                p: contract.validate_review(review(text, rw["revised"], p))
+                p: contract.validate_review(timed("review", review, text, rw["revised"], p))
                 for p in config.PERSPECTIVES[conflict]
             }
             decision = evaluate(fact, reviews)
             trace["rounds"].append({"round": round_no, "rewrite": rw, "fact_check": fact,
-                                    "reviews": reviews, "decision": decision})
+                                    "reviews": reviews, "decision": decision, "feedback_in": feedback})
             if decision in ("approve", "escalate"):
                 result = {"decision": decision, "final": rw["revised"] if decision == "approve" else text,
                           "changes": rw["changes"] if decision == "approve" else []}
@@ -97,9 +117,10 @@ def run(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool = True) ->
 
     result["change_note"] = change_note(result["changes"])
     trace["result"] = result
+    t["total"] = round(sum(v for k, v in t.items() if k != "total"), 2)
     if log:
         utils.audit_log(trace)
-    return result
+    return result, trace
 
 
 def change_note(changes: list[dict]) -> str:

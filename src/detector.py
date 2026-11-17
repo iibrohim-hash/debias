@@ -45,6 +45,15 @@ def _load():
     return tok, model, device
 
 
+def set_model_path(path: str) -> None:
+    """Use the trained detector in `path` (a folder with the model and
+    thresholds.json, e.g. on Drive). Same as setting DEBIAS_DETECTOR_PATH before
+    importing, but works after the setup cell has already imported config."""
+    config.DETECTOR_PATH = str(path)
+    _load.cache_clear()
+    thresholds.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def thresholds() -> dict:
     """Tuned thresholds saved next to the model (thresholds.json from training);
