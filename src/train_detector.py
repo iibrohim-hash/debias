@@ -78,6 +78,7 @@ def train(
     batch_size: int = 16,
     ci: bool = True,
     save_checkpoints: bool = True,
+    fp16: bool | None = None,
 ) -> dict:
     """Train one seed, tune thresholds on val, evaluate on test. Returns a run dict."""
     import torch
@@ -105,7 +106,12 @@ def train(
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name, num_labels=len(config.LABELS), id2label=config.ID2LABEL, label2id=config.LABEL2ID,
+        dtype=torch.float32,
     )
+    # Weights must be fp32 for mixed-precision training (fp16 only for the maths).
+    # mDeBERTa otherwise ends up with some fp16 parameters under transformers 5 and
+    # training fails with "Attempting to unscale FP16 gradients".
+    model = model.float()
 
     args = TrainingArguments(
         output_dir=str(out_dir / "checkpoints"),
@@ -124,7 +130,8 @@ def train(
         save_total_limit=1,
         load_best_model_at_end=save_checkpoints,
         metric_for_best_model="macro_f1",
-        fp16=torch.cuda.is_available(),
+        # fp16=False trains in full fp32 (slower); use it if the loss becomes nan.
+        fp16=torch.cuda.is_available() if fp16 is None else fp16,
         seed=seed,
         data_seed=seed,
         report_to="none",
