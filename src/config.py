@@ -37,6 +37,8 @@ PERSPECTIVES = {
     "russia_ukraine": ("ukrainian", "russian"),
 }
 ALL_PERSPECTIVES = tuple(p for pair in PERSPECTIVES.values() for p in pair)
+# The other reviewer of the same conflict (used for the mirror-pair symmetry check).
+OTHER_PERSPECTIVE = {a: b for pair in PERSPECTIVES.values() for a, b in (pair, pair[::-1])}
 
 # ---------------------------------------------------------------------------
 # Models (Hugging Face ids)
@@ -111,6 +113,7 @@ PROMPTS_DIR = ROOT / "prompts"
 GUIDEBOOK_PATH = DATA_DIR / "guidebook.md"
 TEST_SENTENCES_PATH = DATA_DIR / "test_sentences.csv"
 PROBES_PATH = DATA_DIR / "probes.csv"
+REVIEWER_CASES_PATH = DATA_DIR / "reviewer_cases.csv"  # labeled set for tuning the reviewers
 
 # Set DEBIAS_FAKE=1 to force the fake stand-ins (tests and CI do this).
 USE_FAKES = os.environ.get("DEBIAS_FAKE", "0") == "1"

@@ -46,11 +46,13 @@ src/
   metrics.py       per-class F1, bootstrap CIs, thresholds (both detectors) (A)
   rag.py           retrieve()                                          (D, Yasa)
   rewriter.py      rewrite()                                           (B, Madina)
-  reviewers.py     review()                                            (B, Madina)
+  reviewers.py     review(): Reviewer A/B, one prompt, side as parameter (B)
+  reviewer_eval.py reviewer accuracy, symmetry, false alarms on labeled cases (B)
   pipeline.py      run(): detector -> explain -> RAG -> rewrite -> fact check -> reviewers -> evaluator
 data/
   guidebook.md               (C, Amen)
   test_sentences.csv         id, conflict, biased, neutral, expected_rules   (C)
+  reviewer_cases.csv         40 labeled mirror cases (dev / heldout) for tuning the reviewers (B)
   probes.csv                 id, conflict, prompt, swap_pair_id              (B, D)
   russia_ukraine_to_label.csv id, outlet, text, label_1, label_2             (D)
 prompts/                     (B, Madina)
