@@ -1,0 +1,13 @@
+CHECKED SIDE: $side
+OTHER SIDE: $other_side
+
+RUBRIC (guidebook rules):
+$rubric
+
+ORIGINAL:
+$original
+
+REVISED:
+$revised
+
+Is the REVISED text fair to the checked side ($side)? Return ONLY the JSON object.
