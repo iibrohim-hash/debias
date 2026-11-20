@@ -1,5 +1,6 @@
-CHECKED SIDE: $side
-OTHER SIDE: $other_side
+SIDE NAMES: "$side_name" or "$other_name"
+CHECKED SIDE: $side_name = $side
+OTHER SIDE: $other_name = $other_side
 
 RUBRIC (guidebook rules):
 $rubric
@@ -10,4 +11,4 @@ $original
 REVISED:
 $revised
 
-Is the REVISED text fair to the checked side ($side)? Return ONLY the JSON object.
+List every wording problem in the REVISED text and which side each one hurts ("$side_name" or "$other_name"). Return ONLY the JSON object.
