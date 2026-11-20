@@ -245,3 +245,18 @@ def test_spans_from_reference():
     assert spans == ["terrorists", "their barbaric"]
     assert all(s in biased for s in spans)
     assert rewriter.spans_from_reference(biased, biased) == []
+
+
+def test_noop_changes_dropped_not_rejected(real_path):
+    noop = {"original": "in the market", "revised": "in the market", "reason": "R01: already neutral"}
+    out_with_noop = dict(GOOD, changes=GOOD["changes"] + [noop])
+    out, info = rewrite_detailed(TEXT, SPANS, RULES, generate_fn=lambda m: json.dumps(out_with_noop))
+    assert out["changes"] == GOOD["changes"]
+    assert info["retries"] == 0 and not info["fell_back"]
+
+
+def test_only_noop_changes_and_unchanged_text_returns_input(real_path):
+    only_noop = {"revised": TEXT, "changes": [{"original": "terrorists", "revised": "terrorists", "reason": "R02: x"}]}
+    out, info = rewrite_detailed(TEXT, SPANS, RULES, generate_fn=lambda m: json.dumps(only_noop))
+    assert out == {"revised": TEXT, "changes": []}
+    assert not info["fell_back"]

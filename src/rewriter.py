@@ -12,7 +12,7 @@ How it works:
   get_model() / generate() / generate_batch() are reusable by reviewers.py.
 - Prompts: prompts/rewriter_system.txt, prompts/rewriter_user.txt,
   prompts/rewriter_retry.txt.
-- Output is parsed and validated (schema, spans really in the text, no new numbers
+- Output is parsed (unescaped quotes repaired, no-op changes dropped) and validated (schema, spans really in the text, no new numbers
   or capitalised names). On failure the model gets ONE retry with the errors; if
   that fails too, the input is returned unchanged and the failure goes to the
   audit log. A changed text is never returned without a matching change list.
@@ -379,6 +379,22 @@ def validate_output(text: str, out: dict) -> list[str]:
     return errors
 
 
+def drop_noop_changes(out: dict) -> dict:
+    """Remove listed changes whose original and revised are identical.
+
+    Llama sometimes lists flagged words it decided to keep ("war on" -> "war on").
+    They change nothing, so they are dropped instead of rejecting the whole answer.
+    Anything that is not a well-formed change is left for validate_output to report.
+    """
+    changes = out.get("changes")
+    if isinstance(changes, list):
+        out = dict(out, changes=[
+            c for c in changes
+            if not (isinstance(c, dict) and isinstance(c.get("original"), str) and c.get("original") == c.get("revised"))
+        ])
+    return out
+
+
 def _clean(out: dict, text: str) -> dict:
     """Keep only the contract keys, drop repeated changes; an unchanged text returns exactly the input."""
     changes, seen = [], set()
@@ -426,7 +442,7 @@ def rewrite_detailed(
         raw = g["text"]
         out, facts = None, {"new_numbers": [], "new_names": []}
         try:
-            out = parse_output(raw)
+            out = drop_noop_changes(parse_output(raw))
             errors = validate_output(text, out)
             if isinstance(out.get("revised"), str):
                 facts = find_new_facts(text, out["revised"])
