@@ -1,6 +1,7 @@
 """CPU-only tests for reviewers A/B and their evaluation. No model is downloaded:
 review_many() gets hand-written outputs through `generate_fn`."""
 import json
+import re
 
 import pandas as pd
 import pytest
@@ -29,7 +30,11 @@ def fixed(*outputs):
 # --- prompt ------------------------------------------------------------------
 def test_rubric_has_every_guidebook_rule():
     lines = reviewers.rubric().splitlines()
-    assert lines[0].startswith("R01 ") and len(lines) >= 20
+    rules = [l for l in lines if re.match(r"R\d+ ", l)]
+    assert rules[0].startswith("R01 ") and len(rules) >= 20
+    # v3: each rule is followed by the guidebook's neutral example
+    assert lines[1].startswith("   Acceptable wording: ")
+    assert sum(l.startswith("   Acceptable wording: ") for l in lines) == len(rules)
 
 
 def test_reviewers_a_and_b_differ_only_in_the_side():
