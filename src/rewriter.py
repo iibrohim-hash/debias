@@ -5,9 +5,11 @@ Interface (do not change without telling the team):
         -> {"revised": str, "changes": [{"original", "revised", "reason"}]}
 
 How it works:
-- Model: config.REWRITER_MODEL in 4-bit NF4 (fallback config.REWRITER_FALLBACK_MODEL),
-  loaded lazily on the first real call by get_model(). get_model() / generate() /
-  generate_batch() are reusable by reviewers.py.
+- Model: config.REWRITER_MODEL (Llama 3.1 8B Instruct) in 4-bit NF4, loaded lazily on
+  the first real call by get_model(). No fallback model: if Llama cannot be loaded,
+  get_model() raises with the reason (no token, no license access, out of memory).
+  check_model_access() tests the token and licence in seconds, before the download.
+  get_model() / generate() / generate_batch() are reusable by reviewers.py.
 - Prompts: prompts/rewriter_system.txt, prompts/rewriter_user.txt,
   prompts/rewriter_retry.txt.
 - Output is parsed and validated (schema, spans really in the text, no new numbers
@@ -41,19 +43,68 @@ def _fake_rewrite(text: str, spans: list[str], rules: list[str], feedback: str |
 # ---------------------------------------------------------------------------
 # Model loading and generation (reusable by reviewers.py)
 # ---------------------------------------------------------------------------
+_TOKEN_HELP = (
+    "Colab: key icon on the left > add a secret named HF_TOKEN (a Read token from "
+    "https://huggingface.co/settings/tokens) and switch ON 'Notebook access' for this notebook. "
+    "Kaggle: Add-ons > Secrets > HF_TOKEN. Then run the setup cell again."
+)
+
+
+def access_error_message(model_id: str, exc: Exception | None) -> str:
+    """Plain-language reason why `model_id` cannot be downloaded, with the fix.
+
+    Matches exceptions by class name so it works across huggingface_hub versions.
+    """
+    page = f"https://huggingface.co/{model_id}"
+    if exc is None:
+        return f"No Hugging Face token found, and {model_id} is a gated model. {_TOKEN_HELP}"
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    text = str(exc)
+    if "GatedRepoError" in names or "403" in text:
+        return (
+            f"Your Hugging Face account has no access to {model_id} yet. Open {page} while logged in "
+            f"with the SAME account the token belongs to and accept the Llama license form. Approval "
+            f"usually takes minutes to a few hours; the status is at https://huggingface.co/settings/gated-repos "
+            f"(it must say 'accepted'). Then restart the runtime and run the setup cell again."
+        )
+    if "401" in text or "Invalid user token" in text or "RepositoryNotFoundError" in names:
+        return f"The HF_TOKEN was rejected (expired, mistyped or revoked). Make a new Read token. {_TOKEN_HELP}"
+    return f"Could not reach {model_id}: {type(exc).__name__}: {exc}"
+
+
+def check_model_access(model_id: str = config.REWRITER_MODEL) -> str:
+    """Fast check before the big download: token present, valid, and allowed into the gated repo.
+
+    Downloads only the model's small config.json. Returns the Hugging Face username.
+    Raises RuntimeError with the fix if anything is missing.
+    """
+    from huggingface_hub import HfApi, hf_hub_download
+
+    token = utils.get_hf_token()  # never printed or logged
+    if not token:
+        raise RuntimeError(access_error_message(model_id, None))
+    try:
+        user = HfApi().whoami(token=token)["name"]
+        hf_hub_download(model_id, "config.json", token=token)
+    except Exception as e:
+        raise RuntimeError(access_error_message(model_id, e)) from None
+    return user
+
+
 @lru_cache(maxsize=1)
 def get_model():
-    """Return (model, tokenizer, model_id). Loads once, on the first call.
+    """Return (model, tokenizer, model_id). Loads config.REWRITER_MODEL once, on the first call.
 
     4-bit NF4 with double quantisation, float16 compute (the T4 has no fast bf16).
-    Falls back to config.REWRITER_FALLBACK_MODEL if the main model fails to load.
+    There is no fallback model: if Llama cannot be loaded this raises with the reason,
+    so every result is guaranteed to come from config.REWRITER_MODEL.
     """
-    import gc
-
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+    model_id = config.REWRITER_MODEL
     utils.set_seed(config.SEED)
+    check_model_access(model_id)
     token = utils.get_hf_token()  # never printed or logged
     quant = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -61,29 +112,26 @@ def get_model():
         bnb_4bit_use_double_quant=True,
         bnb_4bit_compute_dtype=torch.float16,
     )
-    failures = []
-    for model_id in (config.REWRITER_MODEL, config.REWRITER_FALLBACK_MODEL):
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id, token=token, quantization_config=quant,
-                device_map="auto", dtype=torch.float16,
-            )
-        except Exception as e:  # gated repo, no access, OOM, ...
-            failures.append(f"{model_id}: {type(e).__name__}: {e}")
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            continue
-        tokenizer.padding_side = "left"  # decoder-only models need left padding in batches
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        model.eval()
-        if failures:
-            print(f"[rewriter] {config.REWRITER_MODEL} failed to load, using {model_id}")
-            utils.audit_log({"event": "rewriter_model_fallback", "loaded": model_id, "failures": failures})
-        return model, tokenizer, model_id
-    raise RuntimeError("Could not load any rewriter model:\n" + "\n".join(failures))
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id, token=token, quantization_config=quant,
+            device_map="auto", dtype=torch.float16,
+        )
+    except torch.cuda.OutOfMemoryError:
+        raise RuntimeError(
+            f"Out of GPU memory loading {model_id}. Use a T4 (or bigger) GPU runtime, and if another "
+            f"model is already loaded, Runtime > Restart session, then run the setup cell again."
+        ) from None
+    except Exception as e:
+        raise RuntimeError(f"Could not load {model_id}: {type(e).__name__}: {e}") from e
+    if not torch.cuda.is_available():
+        print(f"[rewriter] WARNING: no GPU, {model_id} will be extremely slow")
+    tokenizer.padding_side = "left"  # decoder-only models need left padding in batches
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    model.eval()
+    return model, tokenizer, model_id
 
 
 def loaded_model_id() -> str | None:
