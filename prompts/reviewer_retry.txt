@@ -1,4 +1,4 @@
 Your answer was rejected for these reasons:
 $errors
 
-Answer again for the same texts. Every "phrase" must be copied exactly from the REVISED text. Output ONLY the JSON object.
+Answer again for the same texts. Every "phrase" must be copied exactly from the REVISED text, and every "hurts" must be one of the two side names. Output ONLY the JSON object.

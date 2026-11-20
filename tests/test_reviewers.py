@@ -9,6 +9,10 @@ from src import config, contract, reviewer_eval, reviewers
 
 ORIG = "Side B fighters attacked the checkpoint, officials said."
 REV = "Side B terrorists attacked the checkpoint, officials said."
+# Model outputs (v2): every issue says which side it hurts.
+OUT_PAL = {"issues": [{"phrase": "Side B terrorists", "hurts": "Palestinian side", "problem": "R02: loaded label"}]}
+OUT_NONE = {"issues": []}
+# Contract results
 UNFAIR = {"fair": False, "issues": [{"phrase": "Side B terrorists", "problem": "R02: loaded label"}]}
 FAIR = {"fair": True, "issues": []}
 
@@ -32,8 +36,10 @@ def test_reviewers_a_and_b_differ_only_in_the_side():
     a = reviewers.build_messages(ORIG, REV, "palestinian")
     b = reviewers.build_messages(ORIG, REV, "israeli")
     assert a[0] == b[0]  # same system prompt
-    swapped = a[1]["content"].replace(reviewers.SIDES["palestinian"], "@@").replace(
-        reviewers.SIDES["israeli"], reviewers.SIDES["palestinian"]).replace("@@", reviewers.SIDES["israeli"])
+    swapped = a[1]["content"]
+    for table in (reviewers.SIDES, reviewers.SIDE_NAMES):
+        swapped = swapped.replace(table["palestinian"], "@@").replace(
+            table["israeli"], table["palestinian"]).replace("@@", table["israeli"])
     assert swapped == b[1]["content"]
 
 
@@ -43,8 +49,8 @@ def test_every_perspective_has_a_side_description():
 
 # --- validation --------------------------------------------------------------
 def test_valid_outputs():
-    assert reviewers.validate_output(REV, UNFAIR) == []
-    assert reviewers.validate_output(REV, FAIR) == []
+    assert reviewers.validate_output(REV, OUT_PAL, "palestinian") == []
+    assert reviewers.validate_output(REV, OUT_NONE, "israeli") == []
 
 
 def test_phrase_match_ignores_case_quotes_and_spaces():
@@ -52,31 +58,43 @@ def test_phrase_match_ignores_case_quotes_and_spaces():
     assert not reviewers.phrase_in("", REV)
 
 
+@pytest.mark.parametrize("hurts, expected", [
+    ("Palestinian side", "palestinian"), ("palestinian", "palestinian"), ("Israeli side", "israeli"),
+    ("Russian side", None), ("both", None),
+])
+def test_hurts_side(hurts, expected):
+    assert reviewers.hurts_side(hurts, "israeli") == expected
+
+
 @pytest.mark.parametrize("out, msg", [
-    ({"fair": True, "issues": UNFAIR["issues"]}, "issues"),
-    ({"fair": False, "issues": []}, "no issue"),
-    ({"fair": False, "issues": [{"phrase": "invented words", "problem": "R02"}]}, "not in the REVISED"),
-    ({"fair": "no", "issues": []}, "schema"),
+    ({"issues": [{"phrase": "invented words", "hurts": "Israeli side", "problem": "R02"}]}, "not in the REVISED"),
+    ({"issues": [{"phrase": "Side B terrorists", "hurts": "Side X", "problem": "R02"}]}, "hurts must be"),
+    ({"issues": [{"phrase": "Side B terrorists", "problem": "R02"}]}, "string keys"),
+    ({"fair": True}, "schema"),
 ])
 def test_invalid_outputs(out, msg):
-    assert any(msg in e for e in reviewers.validate_output(REV, out))
+    assert any(msg in e for e in reviewers.validate_output(REV, out, "israeli"))
 
 
-# --- review_many: retry and fallback ------------------------------------------
-def test_first_answer_ok():
-    [(res, info)] = reviewers.review_many([(ORIG, REV, "palestinian")], fixed(json.dumps(UNFAIR)))
-    assert res == UNFAIR and info["retries"] == 0 and not info["fell_back"]
-    contract.validate_review(res)
+# --- review_many: side filter, retry and fallback ------------------------------
+def test_issue_counts_only_for_the_side_it_hurts():
+    out = reviewers.review_many([(ORIG, REV, "palestinian"), (ORIG, REV, "israeli")],
+                                fixed(json.dumps(OUT_PAL), json.dumps(OUT_PAL)))
+    (pal, _), (isr, isr_info) = out
+    assert pal == UNFAIR
+    assert isr == FAIR and isr_info["other_side_issues"] == UNFAIR["issues"]
+    contract.validate_review(pal)
+    contract.validate_review(isr)
 
 
 def test_markdown_fences_are_accepted():
-    [(res, _)] = reviewers.review_many([(ORIG, REV, "palestinian")], fixed("```json\n" + json.dumps(FAIR) + "\n```"))
+    [(res, _)] = reviewers.review_many([(ORIG, REV, "palestinian")], fixed("```json\n" + json.dumps(OUT_NONE) + "\n```"))
     assert res == FAIR
 
 
 def test_retry_then_ok():
-    bad = json.dumps({"fair": False, "issues": [{"phrase": "not there", "problem": "R02"}]})
-    [(res, info)] = reviewers.review_many([(ORIG, REV, "israeli")], fixed(bad, json.dumps(UNFAIR)))
+    bad = json.dumps({"issues": [{"phrase": "not there", "hurts": "Israeli side", "problem": "R02"}]})
+    [(res, info)] = reviewers.review_many([(ORIG, REV, "palestinian")], fixed(bad, json.dumps(OUT_PAL)))
     assert res == UNFAIR and info["retries"] == 1 and len(info["attempts"]) == 2
 
 
@@ -89,7 +107,8 @@ def test_two_failures_never_approve():
 
 def test_batch_keeps_order():
     items = [(ORIG, REV, "palestinian"), (ORIG, REV, "israeli"), (ORIG, ORIG, "ukrainian")]
-    out = reviewers.review_many(items, fixed(json.dumps(UNFAIR), json.dumps(FAIR), json.dumps(FAIR)), batch_size=2)
+    out = reviewers.review_many(items, fixed(json.dumps(OUT_PAL), json.dumps(OUT_NONE), json.dumps(OUT_NONE)),
+                                batch_size=2)
     assert [r["fair"] for r, _ in out] == [False, True, True]
 
 
@@ -130,8 +149,9 @@ def _calls(verdicts):
          "original": ORIG, "revised": ORIG, "unfair_to": "none"},
     ])
     order = [(c, p) for c in cases["case_id"] for p in ("palestinian", "israeli")]
-    phrase_ok = {"fair": False, "issues": [{"phrase": "Side B", "problem": "R02"}]}
-    outs = [json.dumps(FAIR if verdicts.get(k, True) else phrase_ok) for k in order]
+    def unfair(p):
+        return {"issues": [{"phrase": "Side B", "hurts": reviewers.SIDE_NAMES[p], "problem": "R02"}]}
+    outs = [json.dumps(OUT_NONE if verdicts.get(k, True) else unfair(k[1])) for k in order]
     return reviewer_eval.run("dev", "test", cases=cases, generate_fn=fixed(*outs), log=False)
 
 

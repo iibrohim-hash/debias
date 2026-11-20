@@ -73,6 +73,7 @@ def review_cases(cases: pd.DataFrame, generate_fn=None, batch_size: int = 8) -> 
             "correct": res["fair"] == m["expected_fair"],
             "phrases": " | ".join(i["phrase"] for i in res["issues"]),
             "problems": " | ".join(i["problem"] for i in res["issues"]),
+            "other_side_phrases": " | ".join(i["phrase"] for i in info.get("other_side_issues", [])),
             "retries": info["retries"],
             "fell_back": info["fell_back"],
             "raw": info["attempts"][-1]["raw"] if info["attempts"] else "",
