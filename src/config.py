@@ -46,7 +46,6 @@ OTHER_PERSPECTIVE = {a: b for pair in PERSPECTIVES.values() for a, b in (pair, p
 DETECTOR_BASE_MODEL = "FacebookAI/xlm-roberta-base"
 SECOND_DETECTOR_BASE_MODEL = "microsoft/mdeberta-v3-base"  # evaluation only
 REWRITER_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
-REWRITER_FALLBACK_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # DeBERTa-v3 trained on MNLI; confirm the exact checkpoint before the fact-check work.
 NLI_MODEL = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
