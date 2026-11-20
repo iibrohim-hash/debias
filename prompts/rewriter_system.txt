@@ -12,3 +12,5 @@ Rules:
 
 Output ONLY one JSON object in this exact schema, with no markdown and no other text:
 {"revised": "<the full revised text>", "changes": [{"original": "<exact words from the text>", "revised": "<the words that replace them>", "reason": "<rule id>: <short reason>"}]}
+Inside JSON strings, write every double quote as \" (for example: "revised": "the \"Friends\" actor said").
+List each change once.

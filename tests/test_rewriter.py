@@ -211,3 +211,37 @@ def test_check_access_without_token_raises(monkeypatch):
     monkeypatch.setattr(rewriter.utils, "get_hf_token", lambda: None)
     with pytest.raises(RuntimeError, match="HF_TOKEN"):
         rewriter.check_model_access()
+
+
+# --- quotes, duplicates, reference spans ----------------------------------------
+def test_parse_repairs_unescaped_quotes():
+    raw = ('{"revised": "The "Friends" actor spoke.", "changes": [{"original": "named "October 7", a", '
+           '"revised": "x", "reason": "R01: y"}]}')
+    out = parse_output(raw)
+    assert out["revised"] == 'The "Friends" actor spoke.'
+    assert out["changes"][0]["original"] == 'named "October 7", a'
+
+
+def test_parse_keeps_valid_escaped_quotes():
+    out = parse_output(json.dumps({"revised": 'a "b" c', "changes": []}))
+    assert out["revised"] == 'a "b" c'
+
+
+def test_parse_error_mentions_quote_escaping():
+    with pytest.raises(ValueError, match="double quote"):
+        parse_output('{"revised": "a", "changes": [1 2]}')
+
+
+def test_duplicate_changes_listed_once(real_path):
+    dup = dict(GOOD, changes=GOOD["changes"] + [GOOD["changes"][0]])
+    out, _ = rewrite_detailed(TEXT, SPANS, RULES, generate_fn=lambda m: json.dumps(dup))
+    assert out["changes"] == GOOD["changes"]
+
+
+def test_spans_from_reference():
+    biased = "Held by Hamas terrorists after their barbaric October 7 raid."
+    neutral = "Held by Hamas after its October 7 raid."
+    spans = rewriter.spans_from_reference(biased, neutral)
+    assert spans == ["terrorists", "their barbaric"]
+    assert all(s in biased for s in spans)
+    assert rewriter.spans_from_reference(biased, biased) == []

@@ -21,6 +21,7 @@ How it works:
 """
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
@@ -251,15 +252,54 @@ def first_json_object(s: str) -> str | None:
     return None
 
 
+def escape_inner_quotes(s: str) -> str:
+    """Escape double quotes the model left unescaped inside JSON strings.
+
+    News text often contains quotes ("Friends" actor, a restaurant named "October 7").
+    Models copy them into the JSON as-is, which breaks it. A quote inside a string
+    is treated as the end of the string only if it is followed by JSON structure
+    (`:` `}` `]`, or `,` and then the next `"` or `{`); otherwise it is escaped.
+    """
+    out, in_str, escaped = [], False, False
+    for i, ch in enumerate(s):
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                rest = s[i + 1:].lstrip()
+                closes = not rest or rest[0] in ":}]" or (rest[0] == "," and rest[1:].lstrip()[:1] in ('"', "{"))
+                if closes:
+                    in_str = False
+                else:
+                    out.append('\\"')
+                    continue
+        elif ch == '"':
+            in_str = True
+        out.append(ch)
+    return "".join(out)
+
+
 def parse_output(raw: str) -> dict:
-    """Model text -> dict. Raises ValueError with a short reason."""
+    """Model text -> dict. Raises ValueError with a short reason.
+
+    If the JSON is invalid, one repair is tried: escaping quotes left unescaped
+    inside strings (see escape_inner_quotes).
+    """
     block = first_json_object(strip_fences(raw))
     if block is None:
         raise ValueError("no complete JSON object found (the output may be cut off)")
     try:
         obj = json.loads(block, strict=False)  # strict=False tolerates raw newlines in strings
     except json.JSONDecodeError as e:
-        raise ValueError(f"invalid JSON: {e.msg} at character {e.pos}") from None
+        try:
+            obj = json.loads(escape_inner_quotes(block), strict=False)
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"invalid JSON: {e.msg} at character {e.pos}. Inside a JSON string, write every "
+                f'double quote as \\" (for example \\"Friends\\")'
+            ) from None
     if not isinstance(obj, dict):
         raise ValueError("the JSON is not an object")
     return obj
@@ -340,8 +380,13 @@ def validate_output(text: str, out: dict) -> list[str]:
 
 
 def _clean(out: dict, text: str) -> dict:
-    """Keep only the contract keys; an unchanged text returns exactly the input."""
-    changes = [{k: c[k] for k in ("original", "revised", "reason")} for c in out["changes"]]
+    """Keep only the contract keys, drop repeated changes; an unchanged text returns exactly the input."""
+    changes, seen = [], set()
+    for c in out["changes"]:
+        key = (c["original"], c["revised"])
+        if key not in seen:  # the model sometimes lists the same change twice
+            seen.add(key)
+            changes.append({k: c[k] for k in ("original", "revised", "reason")})
     if out["revised"].strip() == text.strip():
         return {"revised": text, "changes": []}
     return {"revised": out["revised"], "changes": changes}
@@ -415,3 +460,30 @@ def rewrite_detailed(
 def rewrite(text: str, spans: list[str], rules: list[str], feedback: str | None = None) -> dict:
     result, _ = rewrite_detailed(text, spans, rules, feedback)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Evaluation helper
+# ---------------------------------------------------------------------------
+_EDGE_PUNCT = ".,;:!?\"'()[]“”‘’"
+
+
+def spans_from_reference(biased: str, neutral: str) -> list[str]:
+    """Words of `biased` that a human removed or replaced to write `neutral`.
+
+    Used to evaluate the rewriter on its own ("gold spans"), independent of the
+    detector: each returned span is a run of changed words, copied exactly from
+    `biased`. Words the human only added are not spans. Identical texts -> [].
+    """
+    tokens = biased.split()
+    norm = lambda toks: [t.strip(_EDGE_PUNCT).lower() for t in toks]
+    matcher = difflib.SequenceMatcher(a=norm(tokens), b=norm(neutral.split()), autojunk=False)
+    spans = []
+    for tag, i1, i2, _, _ in matcher.get_opcodes():
+        if tag not in ("replace", "delete"):
+            continue
+        span = " ".join(tokens[i1:i2]).strip(_EDGE_PUNCT)
+        candidates = [span] if span in biased else [t.strip(_EDGE_PUNCT) for t in tokens[i1:i2]]
+        spans += [c for c in candidates if c and c in biased and c not in spans]
+    return spans
+
