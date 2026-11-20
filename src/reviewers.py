@@ -71,9 +71,10 @@ def _prompt(name: str) -> str:
 
 @lru_cache(maxsize=1)
 def rubric() -> str:
-    """Per guidebook rule: "R02 Loaded labels ...: <first sentence of Rule:>" and, on
-    the next line, the guidebook's "Neutral:" example as acceptable wording (v3: on
-    Llama, v2 flagged the guidebook's own neutral wordings, e.g. "military campaign")."""
+    """One line per guidebook rule: "R02 Loaded labels ...: <first sentence of Rule:>".
+
+    v3 (prompt 16777f1c2f) also showed each rule's "Neutral:" example; on Llama 3.1
+    it lowered fair approvals from 0.50 to 0.25 on dev, so it was reverted."""
     text = config.GUIDEBOOK_PATH.read_text(encoding="utf-8")
     lines = []
     for block in re.split(r"(?m)^## ", text)[1:]:
@@ -83,9 +84,6 @@ def rubric() -> str:
             continue
         first = re.split(r"(?<=[.!?])\s", m.group(1).strip(), maxsplit=1)[0]
         lines.append(f"{head.strip()}: {first}")
-        ok = re.search(r"(?m)^Neutral:\s*(.+)$", body)
-        if ok:
-            lines.append(f"   Acceptable wording: {ok.group(1).strip()}")
     return "\n".join(lines)
 
 
