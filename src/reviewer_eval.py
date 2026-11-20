@@ -76,6 +76,7 @@ def review_cases(cases: pd.DataFrame, generate_fn=None, batch_size: int = 8) -> 
             "other_side_phrases": " | ".join(i["phrase"] for i in info.get("other_side_issues", [])),
             "retries": info["retries"],
             "fell_back": info["fell_back"],
+            "first_errors": " | ".join(info["attempts"][0]["errors"]) if info["attempts"] else "",
             "raw": info["attempts"][-1]["raw"] if info["attempts"] else "",
         })
     return pd.DataFrame(rows)
