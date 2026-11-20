@@ -179,3 +179,35 @@ def test_extra_keys_dropped(real_path):
     gen, _ = _scripted(json.dumps(out))
     result, _ = rewrite_detailed(TEXT, SPANS, RULES, generate_fn=gen)
     assert result == GOOD
+
+
+# --- model access: Llama only, clear reason when it cannot load -----------------
+class GatedRepoError(Exception):  # same class name as huggingface_hub's
+    pass
+
+
+def test_no_fallback_model_in_config():
+    assert not hasattr(config, "REWRITER_FALLBACK_MODEL")
+    assert "llama" in config.REWRITER_MODEL.lower()
+
+
+def test_access_message_no_token():
+    msg = rewriter.access_error_message(config.REWRITER_MODEL, None)
+    assert "HF_TOKEN" in msg and "Notebook access" in msg
+
+
+def test_access_message_gated():
+    msg = rewriter.access_error_message(config.REWRITER_MODEL, GatedRepoError("403 Client Error"))
+    assert "licen" in msg and "gated-repos" in msg and config.REWRITER_MODEL in msg
+
+
+def test_access_message_bad_token():
+    msg = rewriter.access_error_message(config.REWRITER_MODEL, Exception("401 Unauthorized: Invalid user token"))
+    assert "rejected" in msg
+
+
+def test_check_access_without_token_raises(monkeypatch):
+    pytest.importorskip("huggingface_hub")
+    monkeypatch.setattr(rewriter.utils, "get_hf_token", lambda: None)
+    with pytest.raises(RuntimeError, match="HF_TOKEN"):
+        rewriter.check_model_access()
