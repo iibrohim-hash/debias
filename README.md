@@ -45,6 +45,7 @@ src/
   train_detector.py  fine-tuning with class weights, threshold tuning    (A)
   metrics.py       per-class F1, bootstrap CIs, thresholds (both detectors) (A)
   second_detector.py  mDeBERTa scores before/after the rewrite (evaluation only) (A)
+  baseline.py      plain-Llama baseline answers + baseline vs responsible table
   rag.py           retrieve()                                          (D, Yasa)
   rewriter.py      rewrite()                                           (B, Madina)
   reviewers.py     review(): Reviewer A/B, one prompt, side as parameter (B)
@@ -54,11 +55,12 @@ data/
   guidebook.md               (C, Amen)
   test_sentences.csv         id, conflict, biased, neutral, expected_rules   (C)
   reviewer_cases.csv         40 labeled mirror cases (dev / heldout) for tuning the reviewers (B)
-  probes.csv                 id, conflict, prompt, swap_pair_id              (B, D)
+  probes.csv                 id, conflict, type, prompt, swap_pair_id (50, draft) (B, D)
   russia_ukraine_to_label.csv id, outlet, text, label_1, label_2             (D)
 prompts/                     (B, Madina)
 notebooks/                   one per person; start from 00_template.ipynb
   F_full_pipeline.ipynb      all parts end to end on the 50 test sentences + second detector
+  G_baseline_vs_responsible.ipynb  plain Llama vs the pipeline on the probes (final comparison)
 tests/                       interface tests, run by GitHub Actions on every push
 ```
 
