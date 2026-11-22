@@ -10,31 +10,27 @@ as the reference.
 """
 from __future__ import annotations
 
-import re
 import time
 
 from . import config, contract, utils
 from .detector import detect, explain
 from .rag import retrieve
 from .reviewers import review
-from .rewriter import rewrite
-
-_NUMBER = re.compile(r"\d[\d,.]*")
-_NAME = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b")
+from .rewriter import find_new_facts, rewrite
 
 
 def fact_check(original: str, revised: str) -> dict:
     """Cheap checks: no new numbers, no new capitalised names.
 
+    Uses the rewriter's own check (rewriter.find_new_facts), so both agree: a word
+    capitalised only because it now starts a sentence ("The", "According") is not
+    a new name. Words that were REMOVED are not caught here; the reviewers see the
+    original and the rewrite side by side.
+
     TODO: add the NLI check (config.NLI_MODEL): original must entail revised.
     """
-    new_numbers = sorted(set(_NUMBER.findall(revised)) - set(_NUMBER.findall(original)))
-    orig_words = set(original.split())
-    new_names = sorted(
-        n for n in set(_NAME.findall(revised)) - set(_NAME.findall(original))
-        if not all(w in orig_words for w in n.split())  # ignore sentence-initial capitals
-    )
-    return {"ok": not new_numbers and not new_names, "new_numbers": new_numbers, "new_names": new_names}
+    new = find_new_facts(original, revised)
+    return {"ok": not new["new_numbers"] and not new["new_names"], **new}
 
 
 def evaluate(fact: dict, reviews: dict[str, dict]) -> str:
