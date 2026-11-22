@@ -44,6 +44,7 @@ src/
   fignews.py       FigNews prep: annotator vote, cleaning, split, masking (A)
   train_detector.py  fine-tuning with class weights, threshold tuning    (A)
   metrics.py       per-class F1, bootstrap CIs, thresholds (both detectors) (A)
+  second_detector.py  mDeBERTa scores before/after the rewrite (evaluation only) (A)
   rag.py           retrieve()                                          (D, Yasa)
   rewriter.py      rewrite()                                           (B, Madina)
   reviewers.py     review(): Reviewer A/B, one prompt, side as parameter (B)
@@ -57,6 +58,7 @@ data/
   russia_ukraine_to_label.csv id, outlet, text, label_1, label_2             (D)
 prompts/                     (B, Madina)
 notebooks/                   one per person; start from 00_template.ipynb
+  F_full_pipeline.ipynb      all parts end to end on the 50 test sentences + second detector
 tests/                       interface tests, run by GitHub Actions on every push
 ```
 
