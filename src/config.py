@@ -100,6 +100,12 @@ THRESHOLDS_TUNED = False
 MAX_NEW_TOKENS = 300
 TEMPERATURE = 0.0  # greedy decoding so reruns give the same text
 MAX_ROUNDS = 3
+# Evaluator rule (team decision pending, see the Oversight slide):
+#   "disagree_escalates": reviewers disagree in any round -> a human at once (current rule).
+#   "retry_first": retry with the reviewers' feedback while problems remain; after the
+#                  last round a disagreement goes to a human, anything else is blocked.
+EVALUATOR_RULES = ("disagree_escalates", "retry_first")
+EVALUATOR_RULE = "disagree_escalates"
 RAG_K = 3
 ALWAYS_INCLUDED_RULE = "R01"  # evidence-only rule
 
