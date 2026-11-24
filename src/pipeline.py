@@ -33,18 +33,35 @@ def fact_check(original: str, revised: str) -> dict:
     return {"ok": not new["new_numbers"] and not new["new_names"], **new}
 
 
-def evaluate(fact: dict, reviews: dict[str, dict]) -> str:
-    """approve | retry | escalate (block is decided after the last round)."""
+def evaluate(fact: dict, reviews: dict[str, dict], rule: str | None = None,
+             last_round: bool = False) -> str:
+    """approve | retry | escalate | block for one round.
+
+    rule (config.EVALUATOR_RULES, default config.EVALUATOR_RULE):
+      "disagree_escalates": reviewers disagree -> a human at once.
+      "retry_first":        reviewers disagree -> retry with feedback; a human only if they
+                            still disagree in the last round.
+    Both: approve needs both reviewers fair and the fact check ok; a round that is not
+    approved and not escalated is retried, or blocked (original kept) in the last round.
+    No reviews (the rewriter returned the text unchanged) is never approved.
+    """
+    rule = rule or config.EVALUATOR_RULE
+    if rule not in config.EVALUATOR_RULES:
+        raise ValueError(f"unknown evaluator rule {rule!r}; choose from {config.EVALUATOR_RULES}")
     fair = [r["fair"] for r in reviews.values()]
-    if len(set(fair)) > 1:
-        return "escalate"  # reviewers disagree -> human
-    if fact["ok"] and all(fair):
+    if fair and all(fair) and fact["ok"]:
         return "approve"
-    return "retry"
+    if len(set(fair)) > 1 and (rule == "disagree_escalates" or last_round):
+        return "escalate"  # reviewers disagree -> human
+    return "block" if last_round else "retry"
 
 
-def _feedback(fact: dict, reviews: dict[str, dict]) -> str:
-    lines = []
+UNCHANGED_FEEDBACK = ("Your last answer left the text unchanged. Rewrite the flagged words "
+                      "using the rules, and list every change.")
+
+
+def _feedback(fact: dict, reviews: dict[str, dict], unchanged: bool = False) -> str:
+    lines = [UNCHANGED_FEEDBACK] if unchanged else []
     if fact["new_numbers"]:
         lines.append(f"Do not add numbers: {fact['new_numbers']}")
     if fact["new_names"]:
@@ -55,21 +72,27 @@ def _feedback(fact: dict, reviews: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
-def run(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool = True) -> dict:
+def run(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool = True,
+        rule: str | None = None) -> dict:
     """Final answer + change note for one chatbot answer."""
-    return run_detailed(text, conflict, log=log)[0]
+    return run_detailed(text, conflict, log=log, rule=rule)[0]
 
 
 def run_detailed(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool = True,
-                 force: bool = False) -> tuple[dict, dict]:
+                 force: bool = False, rule: str | None = None) -> tuple[dict, dict]:
     """Like run(), but also returns the full trace of every step with timings.
 
     force=True sends the text through explain/RAG/rewrite even when the detector
     says "unbiased" or "uncertain" (the real status is still recorded). For demos
     and debugging only; never for evaluation runs.
+    rule: the evaluator rule (see evaluate); default config.EVALUATOR_RULE.
     """
     config.check_conflict(conflict)
-    trace: dict = {"conflict": conflict, "input": text, "forced": force, "rounds": [], "seconds": {}}
+    rule = rule or config.EVALUATOR_RULE
+    if rule not in config.EVALUATOR_RULES:
+        raise ValueError(f"unknown evaluator rule {rule!r}; choose from {config.EVALUATOR_RULES}")
+    trace: dict = {"conflict": conflict, "input": text, "forced": force, "evaluator_rule": rule,
+                   "rounds": [], "seconds": {}}
     t = trace["seconds"]
 
     def timed(name, fn, *args):
@@ -91,25 +114,26 @@ def run_detailed(text: str, conflict: str = config.DEFAULT_CONFLICT, log: bool =
         trace.update(spans=spans, query=query, rules=[r.splitlines()[0] for r in rules])
 
         feedback = None
-        result = None
         for round_no in range(1, config.MAX_ROUNDS + 1):
+            last_round = round_no == config.MAX_ROUNDS
             rw = contract.validate_rewrite(timed("rewrite", rewrite, text, spans, rules, feedback))
             fact = fact_check(text, rw["revised"])
-            reviews = {
+            # Unchanged text (the rewriter gave up or changed nothing): nothing for the reviewers to judge.
+            unchanged = rw["revised"].strip() == text.strip()
+            reviews = {} if unchanged else {
                 p: contract.validate_review(timed("review", review, text, rw["revised"], p))
                 for p in config.PERSPECTIVES[conflict]
             }
-            decision = evaluate(fact, reviews)
-            trace["rounds"].append({"round": round_no, "rewrite": rw, "fact_check": fact,
+            decision = evaluate(fact, reviews, rule, last_round)
+            trace["rounds"].append({"round": round_no, "rewrite": rw, "fact_check": fact, "unchanged": unchanged,
                                     "reviews": reviews, "decision": decision, "feedback_in": feedback})
-            if decision in ("approve", "escalate"):
+            if decision != "retry":
                 result = {"decision": decision, "final": rw["revised"] if decision == "approve" else text,
                           "changes": rw["changes"] if decision == "approve" else []}
+                if decision == "block":
+                    result["reason"] = f"not approved after {config.MAX_ROUNDS} rounds"
                 break
-            feedback = _feedback(fact, reviews)
-        if result is None:
-            result = {"decision": "block", "final": text, "changes": [],
-                      "reason": f"not approved after {config.MAX_ROUNDS} rounds"}
+            feedback = _feedback(fact, reviews, unchanged)
 
     result["change_note"] = change_note(result["changes"])
     trace["result"] = result
