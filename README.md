@@ -61,6 +61,7 @@ prompts/                     (B, Madina)
 notebooks/                   one per person; start from 00_template.ipynb
   F_full_pipeline.ipynb      all parts end to end on the 50 test sentences + second detector
   G_baseline_vs_responsible.ipynb  plain Llama vs the pipeline on the probes (final comparison)
+  H_retry_first.ipynb            G's baseline answers through the pipeline with the retry-first rule
 tests/                       interface tests, run by GitHub Actions on every push
 ```
 
