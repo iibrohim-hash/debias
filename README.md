@@ -46,6 +46,7 @@ src/
   metrics.py       per-class F1, bootstrap CIs, thresholds (both detectors) (A)
   second_detector.py  mDeBERTa scores before/after the rewrite (evaluation only) (A)
   baseline.py      plain-Llama baseline answers + baseline vs responsible table
+  plots.py         result figures for F and H (read the saved CSVs; no GPU needed)
   rag.py           retrieve()                                          (D, Yasa)
   rewriter.py      rewrite()                                           (B, Madina)
   reviewers.py     review(): Reviewer A/B, one prompt, side as parameter (B)
