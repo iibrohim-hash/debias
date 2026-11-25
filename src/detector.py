@@ -124,8 +124,14 @@ def explain(text: str, conflict: str = config.DEFAULT_CONFLICT, top_k: int = 5) 
     lig = LayerIntegratedGradients(
         lambda i, m: model(input_ids=i, attention_mask=m).logits, model.get_input_embeddings()
     )
-    attr = lig.attribute(ids, baselines=baseline, additional_forward_args=(mask,), target=target, n_steps=50)
+    # internal_batch_size: run the 50 steps a few at a time. All 50 at once ran out of
+    # GPU memory on long answers (256 tokens) with Llama loaded next to the detector.
+    attr = lig.attribute(ids, baselines=baseline, additional_forward_args=(mask,), target=target,
+                         n_steps=config.EXPLAIN_STEPS, internal_batch_size=config.EXPLAIN_BATCH)
     scores = attr.sum(dim=-1)[0].detach().cpu().tolist()
+    del attr
+    if device == "cuda":
+        torch.cuda.empty_cache()
 
     # Merge sentencepiece pieces into words ("▁" starts a new word).
     words: list[tuple[str, float]] = []
