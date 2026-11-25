@@ -107,6 +107,8 @@ MAX_ROUNDS = 3
 EVALUATOR_RULES = ("disagree_escalates", "retry_first")
 EVALUATOR_RULE = "disagree_escalates"
 RAG_K = 3
+EXPLAIN_STEPS = 50  # Integrated Gradients steps (Captum)
+EXPLAIN_BATCH = 10  # steps per GPU batch; lower it if the explainer runs out of memory
 ALWAYS_INCLUDED_RULE = "R01"  # evidence-only rule
 
 # ---------------------------------------------------------------------------
